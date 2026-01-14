@@ -42,10 +42,10 @@ def buscar_scopus_por_periodo(query, ano_inicio, ano_fim, max_items=50):
             r = requests.get(BASE_URL, headers=headers, params=params)
             
             if r.status_code == 401:
-                print("⛔ ERRO 401: Falha de permissão (View Complete). Verifique a VPN.")
+                print(" ERRO 401: Falha de permissão (View Complete). Verifique a VPN.")
                 break
             elif r.status_code != 200:
-                print(f"⚠️ Erro: {r.status_code} - {r.text}")
+                print(f" Erro: {r.status_code} - {r.text}")
                 break
             
             dados = r.json()
@@ -58,7 +58,7 @@ def buscar_scopus_por_periodo(query, ano_inicio, ano_fim, max_items=50):
             time.sleep(0.5)
             
         except Exception as e:
-            print(f"❌ Erro crítico: {e}")
+            print(f" Erro crítico: {e}")
             break
             
     return documentos
@@ -144,8 +144,8 @@ def salvar_dados(docs):
         json.dump(lista_limpa, f, ensure_ascii=False, indent=4)
     
     print(f"\n🎓 SUCESSO! Foram gerados 2 arquivos:")
-    print(f"   📄 CSV: {nome_csv}")
-    print(f"   📦 JSON: {nome_json}")
+    print(f"    CSV: {nome_csv}")
+    print(f"    JSON: {nome_json}")
     
 # --- 5. EXECUÇÃO ---
 if __name__ == "__main__":
@@ -160,7 +160,7 @@ if __name__ == "__main__":
     # Se quiser restringir, adicione " AND TITLE-ABS-KEY(tema)"
     QUERY = f"AF-ID({ID_UNB})"
     
-    dados = buscar_scopus_por_periodo(QUERY, ANO_INICIO, ANO_FIM, max_items=5000)
+    dados = buscar_scopus_por_periodo(QUERY, ANO_INICIO, ANO_FIM, max_items=200)
     
     if dados:
         salvar_dados(dados)
