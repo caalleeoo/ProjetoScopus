@@ -14,7 +14,7 @@ ID_UNB = "60024989"
 
 # --- 2. MOTOR DE BUSCA (Com Filtro de Data) ---
 def buscar_scopus_por_periodo(query, ano_inicio, ano_fim, max_items=50):
-    print(f"--- 🚀 Buscando produção da UnB entre {ano_inicio} e {ano_fim} ---")
+    print(f"--- Buscando produção da UnB entre {ano_inicio} e {ano_fim} ---")
     
     headers = {
         "X-ELS-APIKey": API_KEY,
@@ -118,10 +118,10 @@ def salvar_dados(docs):
             "titulo": d.get("dc:title", "N/A"),
             "ano": d.get("prism:coverDate", "")[:4],
             
-            # --- COLUNAS NOVAS PARA SCIVAL ---
-            "autores_unb_detalhado": unb_formatado, # Nome [ID]
-            "autores_unb_ids": unb_ids,             # Só IDs (Separados por ;)
-            # ---------------------------------
+            # --- DADOS PARA O SCIVAL ---
+            "autores_unb_detalhado": unb_formatado,
+            "autores_unb_ids": unb_ids,
+            # ---------------------------
             
             "todos_autores": todos_nomes,
             "revista": d.get("prism:publicationName", "N/A"),
@@ -131,20 +131,28 @@ def salvar_dados(docs):
         }
         lista_limpa.append(item)
     
-    nome_arquivo = f"scopus_unb_autores_{timestamp}.csv"
-    
+    # 1. SALVAR CSV (Excel)
+    nome_csv = f"scopus_unb_autores_{timestamp}.csv"
     df = pd.DataFrame(lista_limpa)
-    df.to_csv(nome_arquivo, index=False, sep=';', encoding='utf-8-sig')
+    df.to_csv(nome_csv, index=False, sep=';', encoding='utf-8-sig')
     
-    print(f"\n🎓 SUCESSO! Arquivo gerado: {nome_arquivo}")
-    print(f"✅ Use a coluna 'autores_unb_ids' para importar no SciVal.")
-
+    # 2. SALVAR JSON (NOVO!)
+    nome_json = f"scopus_unb_autores_{timestamp}.json"
+    with open(nome_json, 'w', encoding='utf-8') as f:
+        # indent=4 deixa o arquivo visualmente organizado
+        # ensure_ascii=False garante que acentos fiquem corretos
+        json.dump(lista_limpa, f, ensure_ascii=False, indent=4)
+    
+    print(f"\n🎓 SUCESSO! Foram gerados 2 arquivos:")
+    print(f"   📄 CSV: {nome_csv}")
+    print(f"   📦 JSON: {nome_json}")
+    
 # --- 5. EXECUÇÃO ---
 if __name__ == "__main__":
     
     # --- CONFIGURE O PERÍODO AQUI ---
-    ANO_INICIO = 2020
-    ANO_FIM = 2024
+    ANO_INICIO = 2024
+    ANO_FIM = 2025
     
     # --- QUERY: TUDO DA UNB ---
     # Como você quer focar "no que eles publicaram" (geral) e não num tema,
@@ -152,7 +160,7 @@ if __name__ == "__main__":
     # Se quiser restringir, adicione " AND TITLE-ABS-KEY(tema)"
     QUERY = f"AF-ID({ID_UNB})"
     
-    dados = buscar_scopus_por_periodo(QUERY, ANO_INICIO, ANO_FIM, max_items=50)
+    dados = buscar_scopus_por_periodo(QUERY, ANO_INICIO, ANO_FIM, max_items=5000)
     
     if dados:
         salvar_dados(dados)
