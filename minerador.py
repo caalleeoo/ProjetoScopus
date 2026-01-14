@@ -1,0 +1,160 @@
+import os
+import requests
+import pandas as pd
+import json
+from dotenv import load_dotenv
+import time
+from datetime import datetime
+
+# --- 1. CONFIGURAÇÃO ---
+load_dotenv()
+API_KEY = os.getenv("SCOPUS_API_KEY")
+BASE_URL = "https://api.elsevier.com/content/search/scopus"
+ID_UNB = "60024989"
+
+# --- 2. MOTOR DE BUSCA (Com Filtro de Data) ---
+def buscar_scopus_por_periodo(query, ano_inicio, ano_fim, max_items=50):
+    print(f"--- 🚀 Buscando produção da UnB entre {ano_inicio} e {ano_fim} ---")
+    
+    headers = {
+        "X-ELS-APIKey": API_KEY,
+        "Accept": "application/json"
+    }
+    
+    documentos = []
+    
+    # Formata o intervalo de datas para a API (ex: "2023-2024")
+    intervalo_data = f"{ano_inicio}-{ano_fim}"
+    
+    for start in range(0, max_items, 25):
+        count = min(25, max_items - len(documentos))
+        if count <= 0: break
+
+        params = {
+            "query": query,
+            "date": intervalo_data, # <--- O FILTRO DE TEMPO ENTRA AQUI
+            "count": count, 
+            "start": start, 
+            "view": "COMPLETE" # Essencial para pegar os IDs dos autores
+        }
+
+        try:
+            r = requests.get(BASE_URL, headers=headers, params=params)
+            
+            if r.status_code == 401:
+                print("⛔ ERRO 401: Falha de permissão (View Complete). Verifique a VPN.")
+                break
+            elif r.status_code != 200:
+                print(f"⚠️ Erro: {r.status_code} - {r.text}")
+                break
+            
+            dados = r.json()
+            novos = dados.get("search-results", {}).get("entry", [])
+            
+            if not novos: break
+            
+            documentos.extend(novos)
+            print(f"   -> Baixados {len(documentos)} documentos...")
+            time.sleep(0.5)
+            
+        except Exception as e:
+            print(f"❌ Erro crítico: {e}")
+            break
+            
+    return documentos
+
+# --- 3. EXTRATOR DE IDs (Ouro para o SciVal) ---
+def garantir_lista(objeto):
+    if not objeto: return []
+    if isinstance(objeto, list): return objeto
+    return [objeto]
+
+def analisar_autores_detalhado(doc):
+    """
+    Retorna:
+    1. String legível: "Nome (ID)"
+    2. String pura de IDs da UnB: "12345; 67890" (Perfeito para colar no SciVal)
+    """
+    autores_raw = garantir_lista(doc.get("author", []))
+    
+    lista_unb_formatada = [] # Ex: "Maria Silva (558899)"
+    lista_unb_ids_puros = [] # Ex: "558899"
+    lista_todos_nomes = []
+    
+    for aut in autores_raw:
+        nome = aut.get("authname", "Desconhecido")
+        # O Scopus ID é o ID que o SciVal usa
+        auth_id = aut.get("authid", "") 
+        
+        lista_todos_nomes.append(nome)
+        
+        # Verifica afiliação
+        afids_raw = garantir_lista(aut.get("afid", []))
+        ids_afiliacao = [str(af.get("$", "")) for af in afids_raw if "$" in af]
+        
+        if ID_UNB in ids_afiliacao:
+            # Encontramos um autor da UnB!
+            lista_unb_formatada.append(f"{nome} [{auth_id}]")
+            if auth_id:
+                lista_unb_ids_puros.append(auth_id)
+            
+    return (
+        "; ".join(lista_todos_nomes), 
+        "; ".join(lista_unb_formatada), 
+        "; ".join(lista_unb_ids_puros)
+    )
+
+# --- 4. LAPIDADOR E SALVAMENTO ---
+def salvar_dados(docs):
+    agora = datetime.now()
+    timestamp = agora.strftime("%Y-%m-%d_%H-%M-%S")
+    
+    lista_limpa = []
+    
+    for d in docs:
+        todos_nomes, unb_formatado, unb_ids = analisar_autores_detalhado(d)
+        
+        item = {
+            "titulo": d.get("dc:title", "N/A"),
+            "ano": d.get("prism:coverDate", "")[:4],
+            
+            # --- COLUNAS NOVAS PARA SCIVAL ---
+            "autores_unb_detalhado": unb_formatado, # Nome [ID]
+            "autores_unb_ids": unb_ids,             # Só IDs (Separados por ;)
+            # ---------------------------------
+            
+            "todos_autores": todos_nomes,
+            "revista": d.get("prism:publicationName", "N/A"),
+            "citacoes": d.get("citedby-count", "0"),
+            "doi": d.get("prism:doi", ""),
+            "link": next((L['@href'] for L in d.get('link', []) if L['@ref'] == 'scopus'), "")
+        }
+        lista_limpa.append(item)
+    
+    nome_arquivo = f"scopus_unb_autores_{timestamp}.csv"
+    
+    df = pd.DataFrame(lista_limpa)
+    df.to_csv(nome_arquivo, index=False, sep=';', encoding='utf-8-sig')
+    
+    print(f"\n🎓 SUCESSO! Arquivo gerado: {nome_arquivo}")
+    print(f"✅ Use a coluna 'autores_unb_ids' para importar no SciVal.")
+
+# --- 5. EXECUÇÃO ---
+if __name__ == "__main__":
+    
+    # --- CONFIGURE O PERÍODO AQUI ---
+    ANO_INICIO = 2020
+    ANO_FIM = 2024
+    
+    # --- QUERY: TUDO DA UNB ---
+    # Como você quer focar "no que eles publicaram" (geral) e não num tema,
+    # usamos apenas o ID da UnB.
+    # Se quiser restringir, adicione " AND TITLE-ABS-KEY(tema)"
+    QUERY = f"AF-ID({ID_UNB})"
+    
+    dados = buscar_scopus_por_periodo(QUERY, ANO_INICIO, ANO_FIM, max_items=50)
+    
+    if dados:
+        salvar_dados(dados)
+    else:
+        print("🍂 Nenhum dado encontrado neste período.")
